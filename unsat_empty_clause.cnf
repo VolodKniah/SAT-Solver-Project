@@ -1,0 +1,5 @@
+c This formula is structurally fine, but has an empty line post-header.
+p cnf 2 1
+1 2 0
+
+-2 0

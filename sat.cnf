@@ -1,0 +1,9 @@
+
+
+c This is a comment before the header.
+c The blank lines above should be completely ignored regardless of [--strict] option.
+c The formula is satisfiable.
+p cnf 3 2
+1 2 0
+c The next line has a missing line ending. The parser will still catch it.
+-1 3
