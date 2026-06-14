@@ -2,7 +2,8 @@
 Usage: dotnet run <path-to-input-file> [options]
 
 Arguments:
-  [path-to-input-file]     The path to the formula file (must be passed first).
+
+  [path-to-input-file]:     The path to the formula file (must be passed first).
 
 Options:
 
