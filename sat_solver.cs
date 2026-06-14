@@ -70,29 +70,129 @@ class Program
             return;
         }
 
-        // Check if user enabled the strict empty-line option (I will be standardizing this when I add more options).
+        string filePath = null;
         bool strictMode = false;
-        if (args.Length > 1 && (args[1] == "--strict" || args[1] == "-s"))
+        bool findAllSolutions = false;
+        
+        for (int i = 0; i < args.Length; i++)
         {
-            strictMode = true;
+            string arg = args[i];
+
+            if (arg.StartsWith("-"))
+            {
+                if (filePath == null)
+                {
+                    Console.WriteLine("Error: Invalid argument order. The input file path must precede any optional flags.");
+                    PrintUsage();
+                    return;
+                }
+
+                switch (arg)
+                {
+                    case "-s":
+                    case "--strict":
+                        strictMode = true;
+                        break;
+
+                    case "--all":
+                        findAllSolutions = true;
+                        break;
+
+                    default:
+                        Console.WriteLine("Error: Unknown option '" + arg + "'");
+                        PrintUsage();
+                        return;
+                }
+            }
+            else
+            {
+                if (filePath == null)
+                {
+                    filePath = arg;
+                }
+                else
+                {
+                    Console.WriteLine("Error: Unexpected extra argument '" + arg + "'");
+                    PrintUsage();
+                    return;
+                }
+            }
+        }
+
+        if (filePath == null)
+        {
+            Console.WriteLine("Error: No input file specified.");
+            PrintUsage();
+            return;
         }
 
         try
         {
             Formula formula = ParseDimacs(args[0], strictMode);
-            Dictionary<int, bool> assignment = new Dictionary<int, bool>();
+            int solutionCount = 0;
+            bool keepSolving = true;
+            // Run initial check for satisfiability.
+            Dictionary<int, bool> firstCheckAssignment = new Dictionary<int, bool>();
+            bool initiallySatisfiable = Dpll(formula, firstCheckAssignment);
 
             Console.WriteLine("Solving...");
-            bool isSatisfiable = Dpll(formula, assignment);
 
-            if (isSatisfiable)
-            {
-                Console.WriteLine("SATISFIABLE");
-                PrintAssignment(formula, assignment);
-            }
-            else
+            if (!initiallySatisfiable)
             {
                 Console.WriteLine("UNSATISFIABLE");
+                return;
+            }
+
+            while (keepSolving)
+            {
+                Dictionary<int, bool> assignment = new Dictionary<int, bool>();
+                
+                bool isSatisfiable = Dpll(formula, assignment);
+
+                if (isSatisfiable)
+                {
+                    solutionCount++;
+                    Console.Write("Solution #" + solutionCount + ": ");
+                    PrintAssignment(formula, assignment);
+
+                    if (!findAllSolutions)
+                    {
+                        keepSolving = false;
+                        break;
+                    }
+
+                    // Create a new blocking clause to outlaw this exact assignment.
+                    Clause blockingClause = new Clause();
+
+                    foreach (int v in formula.Variables)
+                    {
+                        bool val = false;
+                        if (assignment.ContainsKey(v))
+                        {
+                            val = assignment[v];
+                        }
+                        else
+                        {
+                            assignment[v] = false; 
+                        }
+                        // Invert the polarity for the blocking clause
+                        int rawLiteralValue = val ? -v : v;
+                        blockingClause.Literals.Add(new Literal(rawLiteralValue));
+                    }
+
+                    // If the blocking clause ended up completely empty, break to avoid infinite loops.
+                    if (blockingClause.Literals.Count == 0)
+                    {
+                        break;
+                    }
+
+                    // Append the new constraint directly into the live formula.
+                    formula.Clauses.Add(blockingClause);
+                }
+                else
+                {
+                    keepSolving = false; 
+                }
             }
         }
         catch (Exception ex)
@@ -101,15 +201,80 @@ class Program
         }
     }
 
-    static void PrintUsage() // I will probably make this more systematic when I learn to use the info about the terminal window size better.
+    static void PrintUsage()
     {
-        Console.WriteLine("\nUsage: dotnet run <path-to-input-file> [options]\n");
+        // Fallback padding for the description column.
+        int indentationWidth = 27; 
+
+        Console.WriteLine();
+        Console.WriteLine("Usage: dotnet run <path-to-input-file> [options]");
+        Console.WriteLine();
         Console.WriteLine("Arguments:");
-        Console.WriteLine("  <path-to-input-file>   The path to the formula file (must be passed first).\n");
+        
+        PrintWrapped(
+            "  <path-to-input-file>", 
+            "The path to the formula file (must be passed first).", 
+            indentationWidth
+        );
+        Console.WriteLine();
+
         Console.WriteLine("Options:");
-        Console.WriteLine("  -s, --strict           Enables strict parsing mode. Empty lines after the header");
-        Console.WriteLine("                         line will be treated as empty clauses, making the");
-        Console.WriteLine("                         formula UNSATISFIABLE.");
+        
+        PrintWrapped(
+            "  -s, --strict", 
+            "Enables strict parsing mode. Empty lines after the header line will be treated as empty clauses, making the formula UNSATISFIABLE.", 
+            indentationWidth
+        );
+        Console.WriteLine();
+
+        PrintWrapped(
+            "--all", 
+            "Enables full solver mode. All truth assignments will be printed. Performance may take a hit.", 
+            indentationWidth
+        );
+        Console.WriteLine();
+    }
+
+    // Helper method to wrap text based on live terminal width.
+    static void PrintWrapped(string prefix, string description, int indentSize)
+    {
+        // Get the dynamic width of the terminal. 
+        // Fallback to a standard 80 columns if the environment doesn't expose it.
+        int terminalWidth = 80;
+        try { terminalWidth = Console.WindowWidth; } catch { }
+
+        // Calculate how much space we actually have left for text.
+        int maxTextWidth = terminalWidth - indentSize;
+        if (maxTextWidth < 20) maxTextWidth = 20; // Safety floor for tiny windows.
+
+        if (prefix.Length >= indentSize)
+        {
+            Console.WriteLine(prefix);
+            Console.Write(new string(' ', indentSize));
+        }
+        else
+        {
+            Console.Write(prefix.PadRight(indentSize));
+        }
+
+        string[] words = description.Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+        int currentLineLength = 0;
+
+        for (int i = 0; i < words.Length; i++)
+        {
+            string word = words[i];
+
+            if (currentLineLength + word.Length + 1 > maxTextWidth)
+            {
+                Console.WriteLine();
+                Console.Write(new string(' ', indentSize));
+                currentLineLength = 0;
+            }
+
+            Console.Write(word + " ");
+            currentLineLength += word.Length + 1;
+        }
+        Console.WriteLine();
     }
 
     // Core DPLL Algorithm.
@@ -174,14 +339,14 @@ class Program
 
         if (chosenVar == -1) return false; // All variables have a truth assignment, but AllSatisfied check earlier didn't succeed, so the formula is UNSAT.
 
-        // Try branching True
+        // Try branching True.
         assignment[chosenVar] = true;
         if (Dpll(formula, assignment))
         {
             return true;
         }
 
-        // Try branching False
+        // Try branching False.
         assignment[chosenVar] = false;
         if (Dpll(formula, assignment))
         {
@@ -332,7 +497,6 @@ class Program
         return formula;
     }
 
-    // Prints the final variable assignment. I will be implementing an option that lets one print all possible assignments (the performance will be tanking, though).
     static void PrintAssignment(Formula formula, Dictionary<int, bool> assignment)
     {
         List<string> result = new List<string>();
