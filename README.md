@@ -5,6 +5,8 @@ Arguments:
 
   [path-to-input-file]:     The path to the formula file (must be passed first).
 
+
+
 Options:
 
   -s, --strict:             Enables strict parsing mode. Empty lines after the
